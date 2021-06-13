@@ -1,0 +1,6 @@
+* HI226/HI229/CH100/CH110/HI221Dongle请安装CP2104.zip
+
+* HI221请安装CH341SER
+
+  
+
