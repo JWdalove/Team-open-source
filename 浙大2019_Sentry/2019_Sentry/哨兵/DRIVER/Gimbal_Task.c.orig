@@ -1,0 +1,140 @@
+#include "Gimbal_Task.h"
+
+extern Sentry_info 	SentryInfo;
+extern Cloud_info	Yaw,Pitch;
+extern Poked_info	Poked;
+extern PID_Type 	Pitch_Out_PID,Yaw_Out_PID,Poked_OutPID;
+extern FricStatus_Enum       	FricStatus;
+extern Communicate_info 		Comm;
+extern GimbalControl_Mode_Enum  Gimbal_Control;
+extern DBUSDecoding_Type  		DBUS_ReceiveData,LASTDBUS_ReceiveData;
+
+
+int Gimbal_RunTime;
+float offet_Yaw = 0.0f,offet_Pitch = 0.0f,yaw_offet_coe = 135.0f,offet_Yaw_constant = -50;
+ramp_t yaw_ramp = RAMP_GEN_DAFAULT;
+ramp_t pit_ramp = RAMP_GEN_DAFAULT;
+TickType_t xHeatleaveTicks = 0,xFloowTickCount = 0,xRCTickCount = 0; //初次进入的系统时间
+uint8_t JumpToRCFlag = 1, JumpToFloowFlag = 1, JumpToHeatFlag = 1,JumpToRelaxFlag = 1,JumpToHoldFlag = 1; //状态跳转标志位 开始置一为了让其进入任一种模式
+float a = 0.495,b = 0.0f,c = 0.0f,d =0.0f;
+//static TickType_t  xLastTickCount = 0, xPassedTicks,xPassedTicks1s,xLastTickCount1s,xhp50tick,xhp100tick;//底盘也用
+void Gimbal_Task(void *Parameters)
+{
+	static TickType_t  xLastTickCount = 0, xPassedTicks;
+    portTickType CurrentControlTick = 0;
+    xLastTickCount = xTaskGetTickCount();
+    ramp_init(&pit_ramp, 4000);//300ms
+    ramp_init(&yaw_ramp, 4000);//300ms
+    //上电首次标定  基地位置
+    SentryInfo.Base_Eulerpos = Yaw.Imu_Euler;
+    SentryInfo.Base_Encoderpos = Yaw.Esc.USE_Machine;
+	for(;;)
+	{
+		CurrentControlTick = xTaskGetTickCount();   //读取自开机以来当前系统时间
+        xPassedTicks = xTaskGetTickCount() - xLastTickCount;
+        Gimbal_RunTime = CurrentControlTick;
+		kalman_filter_calc(&motionfliter,Yaw.EnemyDataBuffer[0],Pitch.EnemyDataBuffer[0],SentryInfo.targetspeedvx,SentryInfo.targetspeedvy );
+        memcpy(SentryInfo.motion_kalman,motionfliter.filtered_value,sizeof(SentryInfo.motion_kalman));
+			//使用scope观察的数据
+//			Watchscope[0] = SentryInfo.motion_kalman[1];
+//			Watchscope[1] = Pitch.Imu_Euler;
+//			Watchscope[2] = SentryInfo.Shoot_Dis;
+//			Watchscope[3] = offet_Pitch;
+		
+//		DBUS_ButtonCheckJump(CurrentControlTick);  //按键状态跳变检测
+      Control_Status_Update(CurrentControlTick); //控制状态转换
+		if(FricStatus == FricStatus_Working)
+        {
+            TIM8->CCR1=2900; //3000 0
+            TIM8->CCR2=2900;
+        }
+        else
+        {
+            TIM8->CCR1=2000;
+            TIM8->CCR2=2000;
+        }
+		
+		switch(Gimbal_Control)
+        {
+		case GIMBAL_RELAX: //云台释放
+        {
+            if(JumpToRelaxFlag)
+            {
+                Yaw.Give = Yaw.Imu_Euler;
+                Pitch_Out_PID.LastError = 0;
+                Yaw_Out_PID.LastError = 0;
+                Poked.Turn_angle = Poked.Esc.USE_Machine;
+            }
+            JumpToRelaxFlag = 0;
+            JumpToHoldFlag = 1;
+            JumpToRCFlag = 1;
+            JumpToFloowFlag = 1;
+            JumpToHeatFlag = 1;
+            Yaw.Out = 0;
+            Pitch.Out = 0;
+            Poked.Out = 0;
+			TIM8->CCR1=2000;
+			TIM8->CCR2=2000;
+            break;
+        }
+		case GIMABL_RC: //云台遥控控制
+        {
+            if(JumpToRCFlag)
+            {
+                Yaw.Give = Yaw.Imu_Euler;
+                Pitch.Give = Pitch.Esc.Machine_Angle;
+                Pitch_Out_PID.LastError = 0;
+                Yaw_Out_PID.LastError = 0;
+                Poked_OutPID.LastError = 0;
+                Poked.Turn_angle = Poked.Esc.USE_Machine;
+                xRCTickCount =  xTaskGetTickCount();
+            }
+            JumpToRelaxFlag = 1;
+            JumpToHoldFlag = 1;
+            JumpToRCFlag = 0;
+            JumpToFloowFlag = 1;
+            JumpToHeatFlag = 1;
+            //拨弹
+            /*********************  ↓  拨弹电机PID  ↓ ***********************/
+//            Poke_Calculation(CurrentControlTick);
+            Poked.Out = Poked_Control(Poked.Esc.USE_Machine, Poked.Turn_angle);     //拨弹电机
+            /*********************  ↑  拨弹电机PID  ↑  ***********************/
+            //云台
+            Cloud_Angle_Set(-DBUS_ReceiveData.ch0,0.00035, -DBUS_ReceiveData.ch1,0.00006); //YAW 灵敏度   PITCH 灵敏度
+            Yaw.Out = 0;//Cloud_Control_Yaw(Yaw.Imu_Euler,Yaw.Give);   //205电机PID计算  //初始化目标值为180度  陀螺仪上电自矫正，为180度      防止过冲！！！
+            Pitch.Out = 0;//Cloud_Control_Pitch(Pitch.Imu_Euler,Pitch.Give);   //206电机PID计算   俯仰轴
+            break;
+        }
+		case GIMBAL_HEAT:
+		{
+			if(JumpToHeatFlag)
+            {
+                Pitch_Out_PID.LastError = 0;
+                Yaw_Out_PID.LastError = 0;
+                Poked_OutPID.LastError = 0;
+                Poked.Turn_angle = Poked.Esc.USE_Machine;
+            }
+            JumpToRelaxFlag = 1;
+            JumpToHoldFlag = 1;
+            JumpToRCFlag = 1;
+            JumpToFloowFlag = 1;
+            JumpToHeatFlag = 0;
+			
+			xHeatleaveTicks = xTaskGetTickCount();
+			
+			/*********************  ↓  拨弹电机  ↓ ***********************/
+            Poke_Calculation(CurrentControlTick);
+            Poked.Out = Poked_Control(Poked.Esc.USE_Machine, Poked.Turn_angle);
+            /*********************  ↑  拨弹电机  ↑  ***********************/
+			GimbalHeat_AngleSet(427,0.0f,341,0.0f);
+			Yaw.Out = 0;//Yaw_Heat_Control(SentryInfo.motion_kalman[0] + offet_Yaw + offet_Yaw_constant,427);
+            Pitch.Out = 0;//Pitch_Heat_Control(SentryInfo.motion_kalman[1],341+offet_Pitch);
+			break;
+		}
+		}
+				 
+		CloudMotorDrive(Yaw.Out,Pitch.Out,Poked.Out);  //云台电机输出
+		Gimbal_Board_Communicate(Comm.GSendMotionMode,DBUS_ReceiveData.ch2,0,SentryInfo.Shoot_Dis );
+	 vTaskDelayUntil(&CurrentControlTick, 2/ portTICK_RATE_MS);  //2ms周期  绝对延时  释放CPU占用权
+	}
+}   

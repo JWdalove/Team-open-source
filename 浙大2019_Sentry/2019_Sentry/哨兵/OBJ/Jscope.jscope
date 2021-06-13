@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<JScopeProject>
+    <FileVersion major="1" minor="1" />
+    <Project>
+        <Configuration>
+            <JLink>
+                <Options Connection="1" IsRTTSession="0" IsRTTWithTimeStamp="1" SamplingPeriod="100" SerialNo="0" JTAG_IRPre="-1" JTAG_DRPre="-1" IP="" TargetDevice="unspecified" TargetInterface="SWD" InterfaceSpeed="4000" />
+            </JLink>
+            <ScriptFile Name="F:\RM2019\RM_2019_Sentry4.3\RM_2019_Sentry\OBJ\Jscope.jscope\unspecified" />
+            <ElfFile Name="F:\RM2019\RM_2019_Sentry4.3\RM_2019_Sentry\OBJ\LED.axf" />
+            <DataFile Name="" />
+            <RawFile Name="" />
+            <Scope>
+                <Options TimeResolutionUs="200000" />
+            </Scope>
+        </Configuration>
+        <Windows>
+            <Graph Show="1" />
+            <Watch Show="1" />
+        </Windows>
+        <SelectedSymbols>
+            <Symbol>
+                <Options Name="Watchscope[0]" Address="0x20000384" Type="float" TypeID="1" Size="4" GraphColorRed="255" GraphColorGreen="215" GraphColorBlue="0" YMinSampled="-18" YMaxSampled="6" YAvgSampled="4" Offset="4" ShowInGraph="1" ACCoupling="0" YOffset="380" IsAutoConfig="0" YResolution="10" MaxValue="100" File="..\DRIVER\Gimbal_Task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="Watchscope[1]" Address="0x20000388" Type="float" TypeID="1" Size="4" GraphColorRed="0" GraphColorGreen="255" GraphColorBlue="0" YMinSampled="-18" YMaxSampled="11" YAvgSampled="9" Offset="8" ShowInGraph="0" ACCoupling="0" YOffset="80" IsAutoConfig="0" YResolution="10" MaxValue="52" File="..\DRIVER\Gimbal_Task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="Watchscope[2]" Address="0x2000038C" Type="float" TypeID="1" Size="4" GraphColorRed="102" GraphColorGreen="102" GraphColorBlue="178" YMinSampled="0" YMaxSampled="0" YAvgSampled="0" Offset="12" ShowInGraph="0" ACCoupling="0" YOffset="100" IsAutoConfig="0" YResolution="100" MaxValue="27" File="..\DRIVER\Gimbal_Task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="Watchscope[3]" Address="0x20000390" Type="float" TypeID="1" Size="4" GraphColorRed="160" GraphColorGreen="32" GraphColorBlue="240" YMinSampled="-7" YMaxSampled="6" YAvgSampled="5" Offset="16" ShowInGraph="0" ACCoupling="0" YOffset="50" IsAutoConfig="0" YResolution="5" MaxValue="27" File="..\DRIVER\Gimbal_Task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="Out" Address="0x2000057C" Type="int" TypeID="12" Size="4" GraphColorRed="255" GraphColorGreen="0" GraphColorBlue="0" YMinSampled="0" YMaxSampled="0" YAvgSampled="0" Offset="20" ShowInGraph="0" ACCoupling="0" YOffset="200" IsAutoConfig="0" YResolution="500" MaxValue="2" File="..\DRIVER\struct.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+        </SelectedSymbols>
+    </Project>
+</JScopeProject>

@@ -1,0 +1,104 @@
+#ifndef __UART_JUDGE_H__
+#define __UART_JUDGE_H__
+#include "protocol.h"
+#include "string.h"
+#define UART_RX_DMA_SIZE       150
+//格式转换联合体
+typedef union
+{
+    uint8_t U[4];
+    float F;
+    int I;
+}FormatTrans;
+
+typedef __packed struct
+{
+	uint8_t SOF;          //数据帧起始字节 0xA5          
+	uint16_t DataLength;  //帧内Date长度
+	uint8_t Seq;          //包序号
+	uint8_t CRC8;         //帧头CRC校验
+}tFrameHeader;          // 报文帧头 
+typedef enum 
+{
+	GameInfo = 0x0001,     //比赛进程信息 0x0001  50Hz
+	RealBloodChangedData,  //实时血量变化数据 0x0002
+	RealShootData,         //实时射击数据 0x0003
+	SelfDefinedData =0x0100, //学生上传自定义数据  200Hz
+	Wrong = 0x1301 //错误码
+}tCmdID;                 // 命令码ID
+
+typedef __packed struct
+{
+	uint8_t flag;
+	float x;				//单位为m，小数点后两位为有效值	
+	float y;
+	float z;
+	float compass; //UWB角度信息
+}tLocData; //LOC状态 
+
+typedef __packed struct
+{
+	uint32_t remainTime;      //比赛剩余时间（从倒计时三分钟开始计算，单位 s）
+	uint16_t remainLifeValue; //机器人剩余血量
+	float realChassisOutV;    //实时底盘输出电压（单位 V）
+	float realChassisOutA;    //实时底盘输出电流（单位 A）
+	tLocData locData;         //LOC 状态，见 tLocData 结构体定义
+	float remainPower;        //剩余能量（满值 60J）
+	float heatlimit;          //枪口热量限制
+}tGameInfo;                 //比赛进程信息 
+
+typedef __packed struct
+{
+	uint8_t weakId:4;
+	uint8_t way:4;
+	uint16_t value;
+}tRealBloodChangedData;//(0x0002)
+
+typedef __packed struct
+{
+	float realBulletShootSpeed; //子弹实时射速（m/s）
+	float realBulletShootFreq;  //子弹实时射频（发 /s）
+	float realGolfShootSpeed;   //高尔夫实时射速 (m/s 英雄机器人 )
+	float realGolfShootFreq;    //高尔夫实时射频 ( 发 /s 英雄机器人 )
+}tRealShootData;              //装甲受打击实时信息(0x0003)
+
+typedef __packed struct
+{
+	float data1;
+	float data2;
+	float data3;
+	uint8_t  mask;//  2018新增开关量
+}tSelfDefineInfo;            //学生自定义数据  0x0100 发送频率最大200HZ
+typedef __packed struct
+{
+	tFrameHeader    FrameHeader;   //帧头
+	tCmdID          CmdID;         // 命令码ID
+	__packed union 
+	{
+		tGameInfo       GameInfo;    //进程信息 (0x0001)
+		tRealBloodChangedData   RealBloodChangedData; //血量变化信息(0x0002)
+		tRealShootData   RealShootData; //受打击信息 (0x0003)
+		tSelfDefineInfo SelfDefineInfo; //学生自定义数目 (0x0005)	2018赛季0x0100
+	}Data;                            // 帧内数据
+	uint16_t        CRC16;            //帧尾CRC
+}tFrame;
+typedef struct
+{
+	int Robot_Level    ;        //机器人等级
+	int Remain_HP      ;       //剩余血量
+	int Shoot_Freq     ;       //射频
+  float Shoot_Speed    ;      //射速
+  float Volt         ;       //电池电压
+  float Current      ;        //底盘电流		
+	float Power        ;        //底盘实时功率
+	float Power_Buffer ;        //能量槽
+	float shooterheat  ;
+}RealData;              
+extern uint8_t judge_dma_rxbuff[2][UART_RX_DMA_SIZE];
+extern RealData Robot_Data;
+void Judge_data_pass(void);
+void Judge_Init(void);
+void USART4_SendChar(unsigned char b);
+void Uart_SendBuff ( uint8_t *buff, uint32_t len);
+void Send_FrameData(tCmdID cmdid, uint8_t * pchMessage,uint8_t dwLength);
+#endif

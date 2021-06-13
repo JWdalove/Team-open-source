@@ -1,0 +1,12 @@
+..\obj\commontables.o: F:\Keil_Packs\ARM\CMSIS\5.7.0\CMSIS\DSP\Source\CommonTables\CommonTables.c
+..\obj\commontables.o: F:\Keil_Packs\ARM\CMSIS\5.7.0\CMSIS\DSP\Source\CommonTables\arm_common_tables.c
+..\obj\commontables.o: ..\FWLIB\inc\arm_math.h
+..\obj\commontables.o: F:\Keil_ARM\ARM\ARMCC\Bin\..\include\stdint.h
+..\obj\commontables.o: ..\CORE\core_cm4.h
+..\obj\commontables.o: ..\CORE\core_cmInstr.h
+..\obj\commontables.o: ..\CORE\core_cmFunc.h
+..\obj\commontables.o: ..\CORE\core_cm4_simd.h
+..\obj\commontables.o: F:\Keil_ARM\ARM\ARMCC\Bin\..\include\string.h
+..\obj\commontables.o: F:\Keil_ARM\ARM\ARMCC\Bin\..\include\math.h
+..\obj\commontables.o: ..\CORE\Include\arm_common_tables.h
+..\obj\commontables.o: ..\CORE\Include\arm_math.h

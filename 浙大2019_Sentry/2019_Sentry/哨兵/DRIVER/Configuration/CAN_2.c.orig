@@ -1,0 +1,204 @@
+#include "CAN_2.h"
+
+xQueueHandle    Queue_CANSend;
+CanRxMsg 		rx_message2;
+extern Chassis_info  	Chassis;
+extern Communicate_info	Comm;		//暂时放在这,state_update
+u8 CAN_RX_Cloud[8];
+u8 CAN_RX_F[8];
+u8 CAN_RX_B[8];
+int GIMBALBOARD_FrameCounter = 0;
+int k1=1;
+extern float Yaw_Imu_Euler;
+void CAN_Second_InitConfig(void)
+{
+
+    CAN_InitTypeDef        CAN_InitStructure;
+    CAN_FilterInitTypeDef  CAN_FilterInitStructure;
+    GPIO_InitTypeDef       GPIO_InitStructure;
+    NVIC_InitTypeDef       NVIC_InitStructure;
+
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_CAN2, ENABLE);
+
+    GPIO_InitStructure.GPIO_Mode   =   GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_OType  =   GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_Pin    =   GPIO_Pin_5 | GPIO_Pin_6;
+    GPIO_InitStructure.GPIO_PuPd   =   GPIO_PuPd_UP;
+    GPIO_InitStructure.GPIO_Speed  =   GPIO_Speed_100MHz;
+    GPIO_Init(GPIOB, &GPIO_InitStructure);
+    GPIO_PinAFConfig(GPIOB, GPIO_PinSource5, GPIO_AF_CAN2);
+    GPIO_PinAFConfig(GPIOB, GPIO_PinSource6, GPIO_AF_CAN2);
+
+    CAN_InitStructure.CAN_ABOM      =   DISABLE;
+    CAN_InitStructure.CAN_AWUM      =   DISABLE;
+    CAN_InitStructure.CAN_BS1       =   CAN_BS1_9tq;
+    CAN_InitStructure.CAN_BS2       =   CAN_BS2_4tq;
+    CAN_InitStructure.CAN_Mode      =   CAN_Mode_Normal;
+    CAN_InitStructure.CAN_NART      =   DISABLE;
+    CAN_InitStructure.CAN_Prescaler =   3;
+    CAN_InitStructure.CAN_RFLM      =   DISABLE;
+    CAN_InitStructure.CAN_SJW       =   CAN_SJW_1tq;
+    CAN_InitStructure.CAN_TTCM      =   DISABLE;
+    CAN_InitStructure.CAN_TXFP      =   DISABLE;
+    CAN_Init(CAN2, &CAN_InitStructure);
+
+    CAN_FilterInitStructure.CAN_FilterActivation    =   ENABLE;
+    CAN_FilterInitStructure.CAN_FilterFIFOAssignment=   CAN_Filter_FIFO0;
+    CAN_FilterInitStructure.CAN_FilterIdHigh        =   0x0000;
+    CAN_FilterInitStructure.CAN_FilterIdLow         =   0x0000;
+    CAN_FilterInitStructure.CAN_FilterMaskIdHigh    =   0x0000;
+    CAN_FilterInitStructure.CAN_FilterMaskIdLow     =   0x0000;
+    CAN_FilterInitStructure.CAN_FilterMode          =   CAN_FilterMode_IdMask;
+    CAN_FilterInitStructure.CAN_FilterNumber        =   14;
+    CAN_FilterInitStructure.CAN_FilterScale         =   CAN_FilterScale_32bit;
+    CAN_FilterInit(&CAN_FilterInitStructure);
+    CAN_ITConfig(CAN2, CAN_IT_FMP0, ENABLE);
+
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_4);
+    NVIC_InitStructure.NVIC_IRQChannel						=	CAN2_RX0_IRQn;
+    NVIC_InitStructure.NVIC_IRQChannelCmd					=	ENABLE;
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority	=	1;
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority			=	0;
+    NVIC_Init(&NVIC_InitStructure);
+
+}
+void ChassisMotorDriveCan2(int16_t current_201,int16_t current_202,int16_t current_203,int16_t current_204) //电机16位数据发送
+{
+    static CanSend_Type SendData;
+    SendData.CANx = 2;
+    SendData.TxMessage.StdId = 0x200;
+    SendData.TxMessage.IDE = CAN_Id_Standard;
+    SendData.TxMessage.RTR = CAN_RTR_Data;
+    SendData.TxMessage.DLC = 0x08;
+
+    SendData.TxMessage.Data[0] = (unsigned char)(current_201 >> 8);  //Pitch轴
+    SendData.TxMessage.Data[1] = (unsigned char)current_201;
+    SendData.TxMessage.Data[2] = (unsigned char)(current_202 >> 8);  //Yaw轴
+    SendData.TxMessage.Data[3] = (unsigned char)current_202;
+    SendData.TxMessage.Data[4] = (unsigned char)(current_203 >> 8);
+    SendData.TxMessage.Data[5] = (unsigned char)current_203;
+    SendData.TxMessage.Data[6] = (unsigned char)(current_204 >> 8);
+    SendData.TxMessage.Data[7] = (unsigned char)current_204;
+    xQueueSend(Queue_CANSend, &SendData, 10);
+}
+void TrackMotorDriveCan2(int16_t current_205,int16_t current_206,int16_t current_207)
+{
+    static CanSend_Type   SendData;
+    SendData.CANx = 2;
+    SendData.TxMessage.StdId = 0x1FF;
+    SendData.TxMessage.IDE = CAN_Id_Standard;
+    SendData.TxMessage.RTR = CAN_RTR_Data;
+    SendData.TxMessage.DLC = 0x08;
+
+    SendData.TxMessage.Data[0] = 0;
+    SendData.TxMessage.Data[1] = 0;
+    SendData.TxMessage.Data[2] = 0;
+    SendData.TxMessage.Data[3] = 0;
+    SendData.TxMessage.Data[4] = (unsigned char)(current_207 >> 8);  //拨弹电机
+    SendData.TxMessage.Data[5] = (unsigned char)current_207;
+    SendData.TxMessage.Data[6] = 0;
+    SendData.TxMessage.Data[7] = 0;
+    xQueueSend(Queue_CANSend, &SendData, 10);
+}
+//底盘发送信息
+void Chassis_Board_Communicate(int16_t data1,int16_t data2,int16_t data3,int16_t data4)
+{
+    static CanSend_Type   SendData;
+    SendData.CANx = 2;
+    SendData.TxMessage.StdId = 0x166;
+    SendData.TxMessage.IDE = CAN_Id_Standard;
+    SendData.TxMessage.RTR = CAN_RTR_Data;
+    SendData.TxMessage.DLC = 0x08;
+
+    SendData.TxMessage.Data[0] = (unsigned char)(data1 >> 8);
+    SendData.TxMessage.Data[1] = (unsigned char)data1;
+    SendData.TxMessage.Data[2] = (unsigned char)(data2 >> 8);
+    SendData.TxMessage.Data[3] = (unsigned char)data2;
+    SendData.TxMessage.Data[4] = (unsigned char)(data3 >> 8);
+    SendData.TxMessage.Data[5] = (unsigned char)data3;
+    SendData.TxMessage.Data[6] = (unsigned char)(data4 >> 8);
+    SendData.TxMessage.Data[7] = (unsigned char)data4;
+    xQueueSend(Queue_CANSend, &SendData, 10);
+}
+void CAN2_RX0_IRQHandler(void)
+{
+    if (CAN_GetITStatus(CAN2,CAN_IT_FMP0)!= RESET)
+    {
+        CAN_ClearITPendingBit(CAN2, CAN_IT_FMP0);
+        // CAN_Receive(CAN2, CAN_IT_FMP0, &rx_message);
+        CAN_Receive(CAN2, CAN_FIFO0, &rx_message2);
+        switch (rx_message2.StdId)
+        {
+        case GIMBALBOARD: //来自云台主控的信息0x188
+        {
+            GIMBALBOARD_FrameCounter++;
+            CAN_RX_Cloud[0]=rx_message2.Data[0];
+            CAN_RX_Cloud[1]=rx_message2.Data[1];
+            CAN_RX_Cloud[2]=rx_message2.Data[2];
+            CAN_RX_Cloud[3]=rx_message2.Data[3];
+            CAN_RX_Cloud[4]=rx_message2.Data[4];
+            CAN_RX_Cloud[5]=rx_message2.Data[5];
+            CAN_RX_Cloud[6]=rx_message2.Data[6];
+            CAN_RX_Cloud[7]=rx_message2.Data[7];
+            /*
+            receive data :3 chassis relax
+            			1 chassis rc
+            			2 chsssis  patrol
+            			*/
+            Comm.CRecriveMotionMode   =  CAN_RX_Cloud[0]<<8 | CAN_RX_Cloud[1];  //接收云台发送行走部分运动模式
+            Comm.CReceiveSpeedData	  =  CAN_RX_Cloud[2]<<8 | CAN_RX_Cloud[3];  //接收云台发送行走部分遥控模式下运动速度
+            Comm.CReceiveMiniPC_Dir   =  CAN_RX_Cloud[4]<<8 | CAN_RX_Cloud[5];	//视觉识别标志位
+            Comm.CReceive_Imu_Euler		=  CAN_RX_Cloud[6]<<8 | CAN_RX_Cloud[7];	//视觉识别距离
+//			if(k1==1)
+//			{
+//				Yaw_Imu_Euler=Comm.CReceiveDir;
+//				k1=0;
+//			}
+				
+            break;
+        }
+		case CHASSISF:
+        {
+            Chassis.F.Esc.FrameCounter++;		//监测系统
+            CAN_RX_F[0]=rx_message2.Data[0];
+            CAN_RX_F[1]=rx_message2.Data[1];
+            CAN_RX_F[2]=rx_message2.Data[2];
+            CAN_RX_F[3]=rx_message2.Data[3];
+            CAN_RX_F[4]=rx_message2.Data[4];
+            CAN_RX_F[5]=rx_message2.Data[5];
+            CAN_RX_F[6]=rx_message2.Data[6];
+            CAN_RX_F[7]=rx_message2.Data[7];
+
+
+            Chassis.F.Esc.Machine_Angle =  CAN_RX_F[0]<<8 | CAN_RX_F[1];  //获得底盘电机机械角度
+            Chassis.F.Esc.Angle_Speed   =  CAN_RX_F[2]<<8 | CAN_RX_F[3];  //获得底盘电机速度值
+            break;
+        }
+        case CHASSISB:
+        {
+            Chassis.B.Esc.FrameCounter++;   //监测系统
+            CAN_RX_B[0]=rx_message2.Data[0];
+            CAN_RX_B[1]=rx_message2.Data[1];
+            CAN_RX_B[2]=rx_message2.Data[2];
+            CAN_RX_B[3]=rx_message2.Data[3];
+            CAN_RX_B[4]=rx_message2.Data[4];
+            CAN_RX_B[5]=rx_message2.Data[5];
+            CAN_RX_B[6]=rx_message2.Data[6];
+            CAN_RX_B[7]=rx_message2.Data[7];
+            Chassis.B.Esc.Machine_Angle_Last=Chassis.B.Esc.Machine_Angle;
+            Chassis.B.Esc.Machine_Angle =  CAN_RX_B[0]<<8 | CAN_RX_B[1];  //获得底盘电机机械角度
+            Chassis.B.Esc.Angle_Speed   =  CAN_RX_B[2]<<8 | CAN_RX_B[3];  //获得底盘电机速度值
+			 Chassis.B.Esc.USE_Machine = Chassis.B.Esc.Machine_Angle;	//将当前值给USE
+            if     (Chassis.B.Esc.Machine_Angle-Chassis.B.Esc.Machine_Angle_Last>4096)
+                Chassis.B.Esc.Zero_Flag--;  //反方向
+            else if(Chassis.B.Esc.Machine_Angle-Chassis.B.Esc.Machine_Angle_Last<-4096)
+                Chassis.B.Esc.Zero_Flag++;  //正方向
+            Chassis.B.Esc.USE_Machine += (8192*Chassis.B.Esc.Zero_Flag);	                 //在USE（未满一圈）+超过一圈
+
+					
+            break;
+        }
+        }
+    }
+}

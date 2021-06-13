@@ -1,0 +1,191 @@
+#include "uart_MiniPC.h"
+
+extern Sentry_info		SentryInfo;
+extern Cloud_info		Yaw,Pitch;
+extern imagepro_info 	MiniPC;
+extern float speed_Euler_Pitch,speed_Euler_Yaw;
+extern float Yaw_plus,Pitch_plus;
+int MiniPCFrameCounter=0;
+char USART_RX_TEST[20]= {0};
+char USART2_TX_LEN=6;
+char USART2_RX[6];
+char USART2_TX[6]= {0x89,0xFF,8,8,0xFF,0x89};
+u8 i = 0;
+u16 USART_RX_BUF2[15]= {0};
+int USARTtemp2;
+float error = 0.0;
+
+
+
+#define abs_f(x) ((x)>0? (x):(-(x)))
+
+void USART_MiniPC_InitConfig(void)
+{
+    USART_InitTypeDef usart2;
+    GPIO_InitTypeDef  gpio;
+    NVIC_InitTypeDef  nvic;
+    DMA_InitTypeDef   DMA_InitStructure;
+
+
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_DMA1, ENABLE);    //  DMA1 Stream5
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOD,ENABLE);
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2,ENABLE);
+
+
+    gpio.GPIO_Pin = GPIO_Pin_5| GPIO_Pin_6;
+    gpio.GPIO_Mode = GPIO_Mode_AF;
+    gpio.GPIO_OType = GPIO_OType_PP;
+    gpio.GPIO_Speed = GPIO_Speed_100MHz;
+    gpio.GPIO_PuPd = GPIO_PuPd_NOPULL;
+    GPIO_Init(GPIOD,&gpio);
+
+    GPIO_PinAFConfig(GPIOD,GPIO_PinSource5,GPIO_AF_USART2);
+    GPIO_PinAFConfig(GPIOD,GPIO_PinSource6,GPIO_AF_USART2);
+
+//	  USART_DeInit(USART2);
+    usart2.USART_BaudRate = 115200;
+    usart2.USART_WordLength = USART_WordLength_8b;
+    usart2.USART_StopBits = USART_StopBits_1;
+    usart2.USART_Parity = USART_Parity_No;
+    usart2.USART_Mode = USART_Mode_Tx|USART_Mode_Rx;
+    usart2.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+    USART_Init(USART2,&usart2);
+    USART_ITConfig(USART2,USART_IT_IDLE,ENABLE);
+    USART_Cmd(USART2,ENABLE);
+
+    USART_DMACmd(USART2,USART_DMAReq_Rx,ENABLE);  //使能串口2DMA接收
+
+    DMA_DeInit(DMA1_Stream5);
+    DMA_InitStructure.DMA_Channel            =   DMA_Channel_4;
+    DMA_InitStructure.DMA_PeripheralBaseAddr =   (uint32_t)(&USART2->DR);
+    DMA_InitStructure.DMA_Memory0BaseAddr    =   (uint32_t)(USART_RX_TEST);
+    DMA_InitStructure.DMA_DIR                =   DMA_DIR_PeripheralToMemory;
+    DMA_InitStructure.DMA_BufferSize         =   20; //1024
+    DMA_InitStructure.DMA_PeripheralInc      =   DMA_PeripheralInc_Disable;
+    DMA_InitStructure.DMA_MemoryInc          =   DMA_MemoryInc_Enable;
+    DMA_InitStructure.DMA_MemoryDataSize     =   DMA_MemoryDataSize_Byte;
+    DMA_InitStructure.DMA_PeripheralDataSize =   DMA_PeripheralDataSize_Byte;
+    DMA_InitStructure.DMA_Mode               =   DMA_Mode_Normal;
+    DMA_InitStructure.DMA_Priority           =   DMA_Priority_Medium;
+    DMA_InitStructure.DMA_FIFOMode           =   DMA_FIFOMode_Disable;
+    DMA_InitStructure.DMA_FIFOThreshold      =   DMA_FIFOThreshold_Full;
+    DMA_InitStructure.DMA_MemoryBurst        =   DMA_MemoryBurst_Single;
+    DMA_InitStructure.DMA_PeripheralBurst    =   DMA_PeripheralBurst_Single;
+    DMA_Init(DMA1_Stream5, &DMA_InitStructure);
+
+    nvic.NVIC_IRQChannel = USART2_IRQn;
+    nvic.NVIC_IRQChannelPreemptionPriority = 2;
+    nvic.NVIC_IRQChannelSubPriority = 2;
+    nvic.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&nvic);
+}
+void USART2_IRQHandler(void)
+{
+
+    USARTtemp2 = USART2->DR;
+    USARTtemp2 = USART2->SR;
+    DMA_Cmd(DMA1_Stream5, DISABLE);
+
+	
+    MiniPC.MiniPC_Msg[0]=USART_RX_TEST[0];//判断两次数据是否相同
+    if(USART_RX_TEST[1]>90)
+    {
+        MiniPC.MiniPC_Msg[1]=((float)USART_RX_TEST[1] + (float)USART_RX_TEST[2]/100) - 90.0f;
+    }
+    else
+    {
+        MiniPC.MiniPC_Msg[1]=-(90.0f-((float)USART_RX_TEST[1] + (float)USART_RX_TEST[2]/100));
+    }
+    if(USART_RX_TEST[3]>90)
+    {
+        MiniPC.MiniPC_Msg[2]=((float)USART_RX_TEST[3] + (float)USART_RX_TEST[4]/100) - 90.0f;
+    }
+    else
+    {
+        MiniPC.MiniPC_Msg[2]=-(90.0f-((float)USART_RX_TEST[3] + (float)USART_RX_TEST[4]/100));
+    }
+    MiniPC.MiniPC_Msg[3]=USART_RX_TEST[5]|USART_RX_TEST[6]<<8;//距离
+    MiniPC.MiniPC_Msg[4]=USART_RX_TEST[7];//标志位
+    MiniPC.MiniPC_Msg[5]=USART_RX_TEST[8]|USART_RX_TEST[9]<<8;//相长
+	MiniPC.Enemy_Count = 0;
+	for(i = 9; i > 0; i--)
+	{
+		MiniPC.Enemy_Flag[i] = MiniPC.Enemy_Flag[i-1];
+		MiniPC.Enemy_Count += MiniPC.Enemy_Flag[i];
+	}
+	MiniPC.Enemy_Flag[0] = MiniPC.MiniPC_Msg[4];
+	
+
+    if((u8)MiniPC.MiniPC_Msg[0] == 0xaa)
+    {
+		if(MiniPC.MiniPC_Msg[1]>-25&&MiniPC.MiniPC_Msg[1]<25)
+		{
+        /*******************运动预测*********************/
+        if(MiniPC.Enemy_Flag[0] !=0 &&MiniPC.Enemy_Flag[4] !=0) //正常数据
+        {
+			MiniPCFrameCounter++;
+            for(i = 9; i > 0; i--)
+            {
+				MiniPC.Angle_error[i] = MiniPC.Angle_error[i-1];
+                Yaw.EnemyDataBuffer[i] = Yaw.EnemyDataBuffer[i-1];
+                Pitch.EnemyDataBuffer[i] = Pitch.EnemyDataBuffer[i-1];
+            }
+			MiniPC.Angle_error[0] = MiniPC.MiniPC_Msg[1]-Yaw_plus;
+			MiniPC.EnemyError = Yaw.EnemyDataBuffer[4] - Yaw.EnemyDataBuffer[0];
+			Yaw.EnemyDataBuffer[0]	 = Yaw.Imu_Euler-MiniPC.MiniPC_Msg[1]-speed_Euler_Yaw*MiniPC.Correction_Yaw*0.1f;
+			Pitch.EnemyDataBuffer[0] = Pitch.Imu_Euler+MiniPC.MiniPC_Msg[2]-speed_Euler_Pitch*MiniPC.Correction_Pitch*0.1f;
+            /***************************************************************/
+            SentryInfo.targetspeedvx_last = SentryInfo.targetspeedvx;
+            SentryInfo.targetspeedvy_last = SentryInfo.targetspeedvy;
+            SentryInfo.targetspeedvx = (Yaw.EnemyDataBuffer[0] - Yaw.EnemyDataBuffer[2]) * 0.005f;                //求出我云台想要的YAW轴速度
+            SentryInfo.targetspeedvy = (Pitch.EnemyDataBuffer[0] - Pitch.EnemyDataBuffer[2]) * 0.0067f;            //求出我云台想要的Pitch速度
+            if(abs_f(SentryInfo.targetspeedvx - SentryInfo.targetspeedvx_last) > 3.0f)                            //如果期望值过大，则不用这个期望速度
+                SentryInfo.targetspeedvx = SentryInfo.targetspeedvx * 0.4f + SentryInfo.targetspeedvx_last * 0.6f;  //改用这个式子所求的速度
+            if(abs_f(SentryInfo.targetspeedvy - SentryInfo.targetspeedvy_last) > 3.0f)                            //这个原理同上
+                SentryInfo.targetspeedvy = SentryInfo.targetspeedvy * 0.4f + SentryInfo.targetspeedvy_last * 0.6f;  //同上
+
+            SentryInfo.Shoot_Dis = MiniPC.MiniPC_Msg[3];
+            SentryInfo.Shoot_Dis = SentryInfo.Shoot_Dis > 800 ? 800 : SentryInfo.Shoot_Dis;
+            SentryInfo.Shoot_Dis = SentryInfo.Shoot_Dis < 100 ? 100 : SentryInfo.Shoot_Dis;
+        }
+	}
+
+    }
+    DMA_ClearFlag(DMA1_Stream5, DMA_FLAG_TCIF5 | DMA_FLAG_HTIF5);
+    while(DMA_GetCmdStatus(DMA1_Stream5) != DISABLE);
+    DMA_SetCurrDataCounter(DMA1_Stream5,20);
+    DMA_Cmd(DMA1_Stream5, ENABLE);
+}
+void DMA1_Stream5_IRQHandler(void)
+{
+    if(DMA_GetFlagStatus(DMA1_Stream5,DMA_FLAG_TCIF5)!=RESET)//等待DMA2_Steam5传输完成
+    {
+        DMA_Cmd(DMA1_Stream5, DISABLE); //关闭DMA,防止处理其间有数据
+
+
+
+        DMA_ClearFlag(DMA1_Stream5, DMA_FLAG_TCIF5 | DMA_FLAG_HTIF5);
+        while(DMA_GetCmdStatus(DMA1_Stream5) != DISABLE);
+        DMA_SetCurrDataCounter(DMA1_Stream5,20);
+        DMA_Cmd(DMA1_Stream5, ENABLE);
+    }
+}
+void USART_send(uint8_t* payload,size_t len)
+{
+    for(i=0; i<len; i++)
+    {
+        while (USART_GetFlagStatus(USART2,USART_FLAG_TC) == RESET);
+        USART2->DR = ((uint16_t)payload[i] & (uint16_t)0x01FF);
+        //delay_us(100);
+
+
+    }
+}
+void USART_Senddata(u8 *TX_buffer)
+{
+    int a=0;
+    while(a!=USART2_TX_LEN)
+    {   while (USART_GetFlagStatus(USART2,USART_FLAG_TC) == RESET);
+        USART2->DR = (TX_buffer[a++] & (uint16_t)0x01FF);
+    }
+}

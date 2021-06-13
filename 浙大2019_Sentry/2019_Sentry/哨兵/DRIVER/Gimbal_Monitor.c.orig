@@ -1,0 +1,20 @@
+#include "Gimbal_Monitor.h"
+
+
+extern FRAME_RATE	FrameRate;
+u8 OutLineNumber = 0;
+u8 tone_sequence=0;
+u8 tone[10][18]={
+                 {0,0,0,0,0,0,0,0,0},  //无鸣叫任务
+	               {1,0,0,0,0,0,0,0,0},  //一声
+								 {1,0,1,0,0,0,0,0,0},  //两声
+								 {1,0,1,0,1,0,0,0,0},  //三声
+								 {1,0,1,0,1,0,1,0,0},  //四声
+								 {1,1,1,1,1,1,1,1,1}   //一直鸣叫
+                 };
+
+
+void Gimbal_Monitor(void *Parameters)
+{
+
+}

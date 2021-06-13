@@ -1,0 +1,287 @@
+#include "CAN_1.h"
+
+CanRxMsg rx_message;
+int CHASSISBOARD_FrameCounter = 0;
+u8 CAN_TX[8];
+u8 CAN_RX_Yaw[8];
+u8 CAN_RX_Pitch[8];
+u8 CAN_RX_Plate[8];
+u8 CAN_RX_BOARD[8];
+u8 CAN1_RX_Poked[8];
+u8 CAN_RX_Poked2[8];
+
+extern Cloud_info	    Yaw,Pitch;
+extern Chassis_info  	Chassis;
+extern Poked_info		Poked;
+extern Communicate_info	Comm;		//暂时放在这,state_update
+
+void CAN_First_InitConfig(void)
+{
+    CAN_InitTypeDef        can;
+    CAN_FilterInitTypeDef  can_filter;
+    GPIO_InitTypeDef       gpio;
+    NVIC_InitTypeDef       nvic;
+
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_CAN1, ENABLE);
+
+    GPIO_PinAFConfig(GPIOB, GPIO_PinSource8, GPIO_AF_CAN1);
+    GPIO_PinAFConfig(GPIOB, GPIO_PinSource9, GPIO_AF_CAN1);
+
+    gpio.GPIO_Pin = GPIO_Pin_8 | GPIO_Pin_9;
+    gpio.GPIO_Mode = GPIO_Mode_AF;
+    GPIO_Init(GPIOB, &gpio);
+
+    nvic.NVIC_IRQChannel = CAN1_RX0_IRQn;
+    nvic.NVIC_IRQChannelPreemptionPriority = 2;
+    nvic.NVIC_IRQChannelSubPriority = 1;
+    nvic.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&nvic);
+
+    nvic.NVIC_IRQChannel = CAN1_TX_IRQn;
+    nvic.NVIC_IRQChannelPreemptionPriority = 1;
+    nvic.NVIC_IRQChannelSubPriority = 1;
+    nvic.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&nvic);
+
+    CAN_DeInit(CAN1);
+    CAN_StructInit(&can);
+
+    can.CAN_TTCM = DISABLE;
+    can.CAN_ABOM = DISABLE;
+    can.CAN_AWUM = DISABLE;
+    can.CAN_NART = DISABLE;
+    can.CAN_RFLM = DISABLE;
+    can.CAN_TXFP = ENABLE;
+    can.CAN_Mode = CAN_Mode_Normal;
+    can.CAN_SJW  = CAN_SJW_1tq;
+    can.CAN_BS1 = CAN_BS1_9tq;
+    can.CAN_BS2 = CAN_BS2_4tq;
+    can.CAN_Prescaler = 3;   //CAN BaudRate 42/(1+9+4)/3=1Mbps
+    CAN_Init(CAN1, &can);
+
+    can_filter.CAN_FilterNumber=0;
+    can_filter.CAN_FilterMode=CAN_FilterMode_IdMask;
+    can_filter.CAN_FilterScale=CAN_FilterScale_32bit;
+    can_filter.CAN_FilterIdHigh=0x0000;
+    can_filter.CAN_FilterIdLow=0x0000;
+    can_filter.CAN_FilterMaskIdHigh=0x0000;
+    can_filter.CAN_FilterMaskIdLow=0x0000;
+    can_filter.CAN_FilterFIFOAssignment=0;
+    can_filter.CAN_FilterActivation=ENABLE;
+    CAN_FilterInit(&can_filter);
+
+    CAN_ITConfig(CAN1,CAN_IT_FMP0,ENABLE);
+    CAN_ITConfig(CAN1,CAN_IT_TME,ENABLE);
+}
+void CloudMotorDrive(int16_t current_205,int16_t current_206,int16_t current_207)
+{
+    static CanSend_Type   SendData;
+    SendData.CANx = 1;
+    SendData.TxMessage.StdId = 0x1FF;
+    SendData.TxMessage.IDE = CAN_Id_Standard;
+    SendData.TxMessage.RTR = CAN_RTR_Data;
+    SendData.TxMessage.DLC = 0x08;
+
+    SendData.TxMessage.Data[0] = (unsigned char)(current_205 >> 8);  //Pitch轴
+    SendData.TxMessage.Data[1] = (unsigned char)current_205;
+    SendData.TxMessage.Data[2] = (unsigned char)(current_206 >> 8);  //Yaw轴
+    SendData.TxMessage.Data[3] = (unsigned char)current_206;
+    SendData.TxMessage.Data[4] = (unsigned char)(current_207 >> 8);
+    SendData.TxMessage.Data[5] = (unsigned char)current_207;
+    SendData.TxMessage.Data[6] = 0;
+    SendData.TxMessage.Data[7] = 0;
+    xQueueSend(Queue_CANSend, &SendData, 10);
+    //CAN_Transmit(CAN1,&TxMessage);
+    // while(CAN_GetITStatus(CAN1,CAN_IT_TME)==RESET);
+}
+void ChassisMotorDrive(int16_t current_201,int16_t current_202,int16_t current_203,int16_t current_204)
+{
+    static CanSend_Type   SendData;
+    SendData.CANx = 1;
+    SendData.TxMessage.StdId = 0x200;
+    SendData.TxMessage.IDE = CAN_Id_Standard;
+    SendData.TxMessage.RTR = CAN_RTR_Data;
+    SendData.TxMessage.DLC = 0x08;
+
+    SendData.TxMessage.Data[0] = (unsigned char)(current_201 >> 8);
+    SendData.TxMessage.Data[1] = (unsigned char)current_201;
+    SendData.TxMessage.Data[2] = (unsigned char)(current_202 >> 8);
+    SendData.TxMessage.Data[3] = (unsigned char)current_202;
+    SendData.TxMessage.Data[4] = (unsigned char)(current_203 >> 8);
+    SendData.TxMessage.Data[5] = (unsigned char)current_203;
+    SendData.TxMessage.Data[6] = (unsigned char)(current_204 >> 8);
+    SendData.TxMessage.Data[7] = (unsigned char) current_204;
+
+
+    xQueueSend(Queue_CANSend, &SendData, 10);
+
+    //CAN_Transmit(CAN1,&TxMessage);
+    // while(CAN_GetITStatus(CAN1,CAN_IT_TME)==RESET);
+}
+//云台发送信息
+void Gimbal_Board_Communicate(int16_t data1,int16_t data2,int16_t data3,int16_t data4)
+{
+    static CanSend_Type   SendData;
+    SendData.CANx = 1;
+    SendData.TxMessage.StdId = 0x188;
+    SendData.TxMessage.IDE = CAN_Id_Standard;
+    SendData.TxMessage.RTR = CAN_RTR_Data;
+    SendData.TxMessage.DLC = 0x08;
+
+    SendData.TxMessage.Data[0] = (unsigned char)(data1 >> 8);
+    SendData.TxMessage.Data[1] = (unsigned char)data1;
+    SendData.TxMessage.Data[2] = (unsigned char)(data2 >> 8);
+    SendData.TxMessage.Data[3] = (unsigned char)data2;
+    SendData.TxMessage.Data[4] = (unsigned char)(data3 >> 8);
+    SendData.TxMessage.Data[5] = (unsigned char)data3;
+    SendData.TxMessage.Data[6] = (unsigned char)(data4 >> 8);
+    SendData.TxMessage.Data[7] = (unsigned char)data4;
+    xQueueSend(Queue_CANSend, &SendData, 10);
+}
+void CAN1_TX_IRQHandler(void)
+{
+    if (CAN_GetITStatus(CAN1,CAN_IT_TME)!= RESET)
+    {
+        CAN_ClearITPendingBit(CAN1,CAN_IT_TME);
+    }
+}
+void CAN1_RX0_IRQHandler(void)
+{
+    if (CAN_GetITStatus(CAN1,CAN_IT_FMP0)!= RESET)
+    {
+        CAN_ClearITPendingBit(CAN1, CAN_IT_FMP0);
+        CAN_Receive(CAN1, CAN_FIFO0, &rx_message);
+        switch(rx_message.StdId)
+        {
+
+        case CHASSISBOARD:  //来自底盘主控的信息0x166
+        {
+			CHASSISBOARD_FrameCounter++;
+            CAN_RX_BOARD[0]=rx_message.Data[0];
+            CAN_RX_BOARD[1]=rx_message.Data[1];
+            CAN_RX_BOARD[2]=rx_message.Data[2];
+            CAN_RX_BOARD[3]=rx_message.Data[3];
+            CAN_RX_BOARD[4]=rx_message.Data[4];
+            CAN_RX_BOARD[5]=rx_message.Data[5];
+            CAN_RX_BOARD[6]=rx_message.Data[6];
+            CAN_RX_BOARD[7]=rx_message.Data[7];
+
+
+
+            Poked.Preview_n = CAN_RX_BOARD[0]<<8 | CAN_RX_BOARD[1];  //获得底盘电机速度值
+
+            /*******************************  暂时屏蔽  **********************************/
+//            judge_rece_mesg.game_information.game_process =  CAN_RX_BOARD[2]<<8 | CAN_RX_BOARD[3];  //获得当前游戏进程
+//            judge_rece_mesg.blood_changed_data.armor_type = (CAN_RX_BOARD[4]<<8 | CAN_RX_BOARD[5]) + 1;	 //获得当前装甲受伤害状态  0+1 ：0号装甲 1+1：1号装甲  加1防止 0无法判别 有无数据
+//            judge_rece_mesg.game_information.remain_hp    =  CAN_RX_BOARD[6]<<8 | CAN_RX_BOARD[7];  //获取当前剩余血量
+            break;
+        }
+        case YAWMOTOR:
+        {
+            Yaw.Esc.FrameCounter++;    //检测系统
+            CAN_RX_Yaw[0]=rx_message.Data[0];
+            CAN_RX_Yaw[1]=rx_message.Data[1];
+            CAN_RX_Yaw[2]=rx_message.Data[2];
+            CAN_RX_Yaw[3]=rx_message.Data[3];
+            CAN_RX_Yaw[4]=rx_message.Data[4];
+            CAN_RX_Yaw[5]=rx_message.Data[5];
+            CAN_RX_Yaw[6]=rx_message.Data[6];
+            CAN_RX_Yaw[7]=rx_message.Data[7];
+
+            Yaw.Esc.Machine_Angle_Last = Yaw.Esc.Machine_Angle;          //传递
+            Yaw.Esc.Machine_Angle =  CAN_RX_Yaw[0]<<8 | CAN_RX_Yaw[1];  //获得Yaw轴机械角度
+            Yaw.Esc.Elec_Measure  =  CAN_RX_Yaw[2]<<8 | CAN_RX_Yaw[3];  //获得电流值
+            Yaw.Esc.Elec_Give     =  CAN_RX_Yaw[4]<<8 | CAN_RX_Yaw[5];  //转矩电流给定值
+            /*******************过零点处理**************************/
+
+            Yaw.Esc.USE_Machine = Yaw.Esc.Machine_Angle;	//将当前值给USE
+            if     (Yaw.Esc.Machine_Angle-Yaw.Esc.Machine_Angle_Last>4096)
+                Yaw.Esc.Zero_Flag--;  //反方向
+            else if(Yaw.Esc.Machine_Angle-Yaw.Esc.Machine_Angle_Last<-4096)
+                Yaw.Esc.Zero_Flag++;  //正方向
+            Yaw.Esc.USE_Machine += (8192*Yaw.Esc.Zero_Flag);	                 //在USE（未满一圈）+超过一圈
+
+            /*同步带延拓 0- 16400*/
+            if(!Yaw.Esc.Init && Yaw.Esc.Machine_Angle != 0)
+            {
+                Yaw.Esc.Revenge_Angle = Yaw.Esc.Machine_Angle;
+                Yaw.Esc.Last_Agl = Yaw.Esc.Machine_Angle;
+                Yaw.Esc.Init = 1;
+            }
+            Yaw.Esc.Agl_Error = ((int16_t)Yaw.Esc.Machine_Angle - (int16_t)Yaw.Esc.Last_Agl);
+            if(Yaw.Esc.Agl_Error == 0) //忽略数值跳变(不懂啥意思)
+            {
+                Yaw.Esc.Agl_Error = 0;
+            }
+            else if(Yaw.Esc.Agl_Error > 7000)
+            {
+                Yaw.Esc.Agl_Error = Yaw.Esc.Agl_Error - 8191;
+            }
+            else if(Yaw.Esc.Agl_Error < -7000)
+            {
+                Yaw.Esc.Agl_Error = -8191 - Yaw.Esc.Agl_Error;
+            }
+            Yaw.Esc.Last_Agl = Yaw.Esc.Machine_Angle;
+            Yaw.Esc.Revenge_Angle += Yaw.Esc.Agl_Error;
+            if(Yaw.Esc.Revenge_Angle > GIMBAL_MAX_LIMIT)
+            {
+                Yaw.Esc.Revenge_Angle = 0;
+            }
+            else if(Yaw.Esc.Revenge_Angle < 0)
+            {
+                Yaw.Esc.Revenge_Angle = GIMBAL_MAX_LIMIT;
+            }
+            Yaw.Esc.Agl_Error = 0;
+            break;
+        }
+
+        case PITCHMOTOR:
+        {
+            Pitch.Esc.FrameCounter++;		//检测系统
+            CAN_RX_Pitch[0]=rx_message.Data[0];
+            CAN_RX_Pitch[1]=rx_message.Data[1];
+            CAN_RX_Pitch[2]=rx_message.Data[2];
+            CAN_RX_Pitch[3]=rx_message.Data[3];
+            CAN_RX_Pitch[4]=rx_message.Data[4];
+            CAN_RX_Pitch[5]=rx_message.Data[5];
+            CAN_RX_Pitch[6]=rx_message.Data[6];
+            CAN_RX_Pitch[7]=rx_message.Data[7];
+
+            Pitch.Esc.Machine_Angle = CAN_RX_Pitch[0]<<8 | CAN_RX_Pitch[1];  //获得Pitch轴机械角度
+            Pitch.Esc.Elec_Measure =  CAN_RX_Pitch[2]<<8 | CAN_RX_Pitch[3];  //获得电流值
+            Pitch.Esc.Elec_Give    =  CAN_RX_Pitch[4]<<8 | CAN_RX_Pitch[5];  //转矩电流给定值
+
+            Pitch.Esc.USE_Machine = Pitch.Esc.Machine_Angle;
+            break;
+        }
+
+        case POKEDMOTOR:
+        {
+            Poked.Esc.FrameCounter++;		//检测系统
+            CAN1_RX_Poked[0]=rx_message.Data[0];
+            CAN1_RX_Poked[1]=rx_message.Data[1];
+            CAN1_RX_Poked[2]=rx_message.Data[2];
+            CAN1_RX_Poked[3]=rx_message.Data[3];
+            CAN1_RX_Poked[4]=rx_message.Data[4];
+            CAN1_RX_Poked[5]=rx_message.Data[5];
+            CAN1_RX_Poked[6]=rx_message.Data[6];
+            CAN1_RX_Poked[7]=rx_message.Data[7];
+
+            Poked.Esc.Machine_Angle_Last=Poked.Esc.Machine_Angle;            //传递
+            Poked.Esc.Machine_Angle = CAN1_RX_Poked[0]<<8 | CAN1_RX_Poked[1];  //获得拨弹电机机械角度
+            Poked.Esc.Angle_Speed   = CAN1_RX_Poked[2]<<8 | CAN1_RX_Poked[3];  //获得电机转速
+
+            if(Poked.Esc.Machine_Angle-Poked.Esc.Machine_Angle_Last>4000)       {
+                Poked.Esc.Zero_Flag-=1;
+            }
+            else if(Poked.Esc.Machine_Angle-Poked.Esc.Machine_Angle_Last<-4000) {
+                Poked.Esc.Zero_Flag+=1;
+            };
+
+            Poked.Esc.USE_Machine=8192* Poked.Esc.Zero_Flag+ Poked.Esc.Machine_Angle;
+            break;
+        }
+        }
+    }
+}
